@@ -3,7 +3,7 @@
  * Plugin Name: Custom Gallery with Tabs
  * Description: Adds a custom post type for a gallery with support for images, videos, and custom tabs.
  * Version: 1.0
- * Author: Dushyant Verma
+ * Author: D3 Logics
  * Text Domain: custom-gallery
  */
 
@@ -59,19 +59,105 @@ add_action('save_post', 'custom_gallery_save_meta_boxes');
 
 function custom_gallery_shortcode() {
     ob_start();
-    $categories = get_terms('gallery_category');
+    ?>
+    <div class="gallery-tabs">
+        <button class="tab-button active" data-category="all">All</button>
+        <?php
+        $categories = get_terms('gallery_category');
+        foreach ($categories as $category) {
+            echo '<button class="tab-button" data-category="' . esc_attr($category->slug) . '">' . esc_html($category->name) . '</button>';
+        }
+        ?>
+    </div>
 
-    echo '<div class="gallery-tabs">';
-    echo '<button class="tab-button active" data-category="all">All</button>';
-    foreach ($categories as $category) {
-        echo '<button class="tab-button" data-category="' . esc_attr($category->slug) . '">' . esc_html($category->name) . '</button>';
+    <div class="gallery-content">
+        <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-3" id="gallery-items"></div> <!-- Empty container for AJAX content -->
+    </div>
+<div class="load-btn">
+<button id="load-more" data-page="1" data-category="all">Load More</button>
+</div>
+
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const galleryRow = document.getElementById("gallery-items");
+        const loadMoreButton = document.getElementById("load-more");
+        let currentCategory = "all";
+
+        function loadGalleryPosts(page, category) {
+            let xhr = new XMLHttpRequest();
+            xhr.open("POST", "<?php echo admin_url('admin-ajax.php'); ?>", true);
+            xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    if (page == 1) {
+                        galleryRow.innerHTML = xhr.responseText;
+                    } else {
+                        galleryRow.insertAdjacentHTML('beforeend', xhr.responseText);
+                    }
+
+                    let morePosts = xhr.getResponseHeader("X-More-Posts");
+                    if (morePosts === "false") {
+                        loadMoreButton.style.display = "none";
+                    } else {
+                        loadMoreButton.style.display = "block";
+                    }
+                }
+            };
+            xhr.send("action=load_gallery_posts&page=" + page + "&category=" + category);
+        }
+
+        loadGalleryPosts(1, currentCategory);
+
+        document.querySelectorAll(".tab-button").forEach(button => {
+            button.addEventListener("click", function () {
+                document.querySelectorAll(".tab-button").forEach(btn => btn.classList.remove("active"));
+                this.classList.add("active");
+
+                currentCategory = this.getAttribute("data-category");
+                loadGalleryPosts(1, currentCategory);
+                loadMoreButton.setAttribute("data-page", "1");
+            });
+        });
+
+        loadMoreButton.addEventListener("click", function () {
+            let nextPage = parseInt(loadMoreButton.getAttribute("data-page")) + 1;
+            loadMoreButton.setAttribute("data-page", nextPage);
+            loadGalleryPosts(nextPage, currentCategory);
+        });
+    });
+    </script>
+
+    <?php
+    return ob_get_clean();
+}
+add_shortcode('custom_gallery', 'custom_gallery_shortcode');
+
+function load_gallery_posts() {
+    $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
+    $category = isset($_POST['category']) ? sanitize_text_field($_POST['category']) : 'all';
+    $posts_per_page = 6;
+    $offset = ($page - 1) * $posts_per_page;
+
+    $args = array(
+        'post_type'      => 'custom_gallery',
+        'posts_per_page' => $posts_per_page,
+        'offset'         => $offset,
+        'orderby'        => 'date', 
+        'order'          => 'ASC', 
+    );
+
+    if ($category !== 'all') {
+        $args['tax_query'] = array(
+            array(
+                'taxonomy' => 'gallery_category',
+                'field'    => 'slug',
+                'terms'    => $category,
+            ),
+        );
     }
-    echo '</div>';
 
-    $query = new WP_Query(array('post_type' => 'custom_gallery', 'posts_per_page' => -1));
-
-    echo '<div class="gallery-content">';
-    echo '<div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-3" id="gallery-items">'; // Bootstrap grid with ID
+    $query = new WP_Query($args);
+    $more_posts = $query->found_posts > ($offset + $posts_per_page);
 
     while ($query->have_posts()) {
         $query->the_post();
@@ -80,7 +166,6 @@ function custom_gallery_shortcode() {
 
         echo '<div class="col gallery-item ' . esc_attr($category_classes) . '">';
         echo '<div class="gallery-img">';
-
         if ($video_url) {
             echo '<a href="' . esc_url($video_url) . '" data-fancybox="gallery">
                     <img src="' . esc_url(get_the_post_thumbnail_url()) . '" alt="' . esc_attr(get_the_title()) . '">
@@ -90,49 +175,17 @@ function custom_gallery_shortcode() {
                     <img src="' . esc_url(get_the_post_thumbnail_url()) . '" alt="' . esc_attr(get_the_title()) . '">
                   </a>';
         }
-
         echo '<div class="title-block">' . get_the_title() . '</div>';
-        echo '</div>'; // Close .gallery-img
-        echo '</div>'; // Close .col
+        echo '</div></div>';
     }
 
-    echo '</div>'; // Close row
-    echo '</div>'; // Close .gallery-content
-
     wp_reset_postdata();
-    ?>
-    
-    <script>
-    document.addEventListener("DOMContentLoaded", function () {
-        const buttons = document.querySelectorAll(".tab-button");
-        const items = document.querySelectorAll(".gallery-item");
-        const galleryRow = document.getElementById("gallery-items");
-
-        buttons.forEach(button => {
-            button.addEventListener("click", function () {
-                const category = this.getAttribute("data-category");
-
-                // Remove active class from all buttons
-                buttons.forEach(btn => btn.classList.remove("active"));
-                this.classList.add("active");
-
-                // Clear and rebuild row structure
-                galleryRow.innerHTML = "";
-
-                items.forEach(item => {
-                    if (category === "all" || item.classList.contains(category)) {
-                        galleryRow.appendChild(item);
-                    }
-                });
-            });
-        });
-    });
-    </script>
-
-    <?php
-    return ob_get_clean();
+    header("X-More-Posts: " . ($more_posts ? "true" : "false"));
+    die();
 }
-add_shortcode('custom_gallery', 'custom_gallery_shortcode');
+add_action('wp_ajax_load_gallery_posts', 'load_gallery_posts');
+add_action('wp_ajax_nopriv_load_gallery_posts', 'load_gallery_posts');
+
 
 
 
