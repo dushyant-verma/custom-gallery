@@ -3,7 +3,7 @@
  * Plugin Name: Custom Gallery with Tabs
  * Description: Adds a custom post type for a gallery with support for images, videos, and custom tabs.
  * Version: 1.0
- * Author: D3 Logics
+ * Author: Dushyant Verma
  * Text Domain: custom-gallery
  */
 
